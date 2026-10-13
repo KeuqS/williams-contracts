@@ -82,7 +82,6 @@ fn filters_wills_by_owner_and_status() {
     assert_ne!(page2.get(0).unwrap().id, p1_id);
 }
 
-
 #[test]
 fn skips_missing_wills_in_owner_status_page() {
     let env = Env::default();
