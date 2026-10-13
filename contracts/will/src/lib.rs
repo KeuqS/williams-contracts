@@ -2684,7 +2684,7 @@ impl WillContract {
             }
             let will = match storage::load_will(&env, id) {
                 Ok(w) => w,
-                Err(e) => panic_with_error!(&env, e),
+                Err(_) => continue,
             };
             if will.status == status {
                 wills.push_back(will);
