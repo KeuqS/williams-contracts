@@ -9,7 +9,7 @@ use soroban_sdk::{
     vec, Address, Env,
 };
 
-use crate::{Allocation, Beneficiary, WillContract, WillContractClient, WillStatus};
+use crate::{storage, Allocation, Beneficiary, WillContract, WillContractClient, WillStatus};
 
 const DAY: u64 = 86_400;
 
@@ -80,4 +80,56 @@ fn filters_wills_by_owner_and_status() {
     let page2 = client.get_wills_by_owner_and_status(&owner, &WillStatus::Active, &Some(p1_id), &1);
     assert_eq!(page2.len(), 1);
     assert_ne!(page2.get(0).unwrap().id, p1_id);
+}
+
+
+#[test]
+fn skips_missing_wills_in_owner_status_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_700_000_000);
+
+    let owner = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(owner.clone());
+    let token_address = sac.address();
+    StellarAssetClient::new(&env, &token_address).mint(&owner, &10_000_000);
+
+    let contract_id = env.register(WillContract, ());
+    let client = WillContractClient::new(&env, &contract_id);
+    let beneficiary = Address::generate(&env);
+    let make_will = || {
+        client.create_will(
+            &owner,
+            &vec![&env, (token_address.clone(), 1_000_000_i128)],
+            &vec![
+                &env,
+                Beneficiary {
+                    address: beneficiary.clone(),
+                    allocation: Allocation::Percentage(10_000),
+                },
+            ],
+            &90,
+            &7,
+            &vec![&env],
+            &0,
+            &None,
+            &0,
+        )
+    };
+
+    let first_will = make_will();
+    let missing_will = make_will();
+
+    // Leave the owner index pointing at an entry that is no longer present,
+    // which is the state this query must tolerate after archival/pruning.
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .remove(&storage::DataKey::Will(missing_will));
+    });
+
+    let page = client.get_owner_status_page(&owner, &WillStatus::Active, &None, &100);
+    assert_eq!(page.wills.len(), 1);
+    assert_eq!(page.wills.get(0).unwrap().id, first_will);
+    assert_eq!(page.total_count, 1);
 }
